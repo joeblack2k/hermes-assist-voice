@@ -26,6 +26,7 @@ from gateway.platforms._shared import env_is_connected, get_scoped_secret
 logger = logging.getLogger(__name__)
 
 REPLY_TIMEOUT = 90.0
+BOT_CHAT_TITLE = "Bot Chat"
 
 
 def check_requirements() -> bool:
@@ -101,6 +102,10 @@ class HAVoiceAdapter(BasePlatformAdapter):
         source = self.build_source(
             chat_id=device, chat_name=f"Voice {device}", chat_type="dm",
             user_id="voice", user_name="Voice")
+        try:
+            await asyncio.to_thread(self._pin_bot_chat, source)
+        except Exception:
+            logger.exception("ha_voice: could not pin Bot Chat session")
         await self.handle_message(MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,
             message_id=uuid.uuid4().hex[:12], timestamp=datetime.now(),
@@ -115,6 +120,27 @@ class HAVoiceAdapter(BasePlatformAdapter):
             if self._waiters.get(device) is fut:
                 del self._waiters[device]
         return web.json_response({"text": reply})
+
+    def _pin_bot_chat(self, source) -> None:
+        """Route this voice chat into the profile's canonical hidden "Bot Chat" session, so the
+        conversation shows up in the app's bot view and continues on other devices."""
+        store = getattr(self, "_session_store", None)
+        if store is None:
+            return
+        key = store._generate_session_key(source)
+        entry = store.get_or_create_session(source, touch_activity=False)
+        db = store._db_for_key(key)
+        row = db.get_session_by_title(BOT_CHAT_TITLE)
+        if row:
+            bot_id = row["id"]
+        else:
+            bot_id = "bot_chat_" + uuid.uuid4().hex[:12]
+            db.create_session(bot_id, "bot_peer_dm")
+            db.set_session_title(bot_id, BOT_CHAT_TITLE)
+            db.set_session_hidden(bot_id, True)
+        tip = store._compression_tip_for_session_id(bot_id) or bot_id
+        if entry.session_id not in (bot_id, tip):
+            store.switch_session(key, tip)
 
     async def send(
         self, chat_id: str, content: str, reply_to: Optional[str] = None,

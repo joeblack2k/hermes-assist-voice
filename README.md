@@ -32,14 +32,14 @@ This repository contains two small parts that work together:
 
 Hermes' `api_server` platform is great for generic clients, but a voice assistant has different needs:
 
-* **The bot, not the client, owns sessions.** With the API server the *caller* picks the session id, so a voice satellite either stays in one endless session or has to invent its own reset rules. With `ha_voice` the turn goes through the gateway's `SessionStore`, so the bot's own `session_reset` policy (idle timeout, daily reset) and commands like `/new` apply, exactly as for Telegram or Discord. Conversations show up in Hermes under the bot (one continuing conversation per speaker/device).
+* **The bot, not the client, owns sessions.** With the API server the *caller* picks the session id, so a voice satellite either stays in one endless session or has to invent its own reset rules. With `ha_voice` the turn goes through the gateway's `SessionStore`, so the bot's own `session_reset` policy (idle timeout, daily reset) and commands like `/new` apply, exactly as for Telegram or Discord. Voice turns are written to the bot's canonical `Bot Chat` session, so they appear in the bot's chat view in the Hermes apps and you can continue the same conversation on another device.
 * **Spoken output.** The plugin injects a "this is spoken aloud" hint and lets you switch off tool-progress and interim messages for the platform, so only the final short answer reaches the speaker.
 * **One place for behaviour.** Personality, language and tools live in the Hermes profile (`SOUL.md`, `config.yaml`), not in Home Assistant.
 
 ## Features
 
 * Synchronous request/response: the final answer is returned as soon as the agent finishes.
-* One conversation per voice device (`device` field, for example the satellite entity name), managed by the Hermes session policy.
+* All voice devices (`device` field, for example the satellite entity name) share the bot's `Bot Chat` conversation; context is kept by Hermes compression rather than daily resets.
 * Optional per-request `context` (the integration sends the current local time) applied as an ephemeral system prompt that is never stored in the transcript.
 * Bearer-token authentication, bind address defaults to loopback.
 * Works with any Assist pipeline: STT, TTS and wake word are completely independent of this project.

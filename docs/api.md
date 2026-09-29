@@ -38,7 +38,7 @@ Only the final reply of a turn is returned. Tool-progress and interim assistant 
 ## How a turn flows through Hermes
 
 1. The plugin builds a `MessageEvent` (platform `ha_voice`, chat type `dm`, chat id = `device`) and hands it to the gateway with `handle_message`.
-2. The gateway resolves the session with the profile's `SessionStore` and reset policy, runs the agent and calls the adapter's `send()` with the final answer (marked `notify`).
+2. Before the turn, the adapter pins the voice chat to the profile's canonical hidden **`Bot Chat`** session (created on first use), so every voice device shares the one bot conversation that the Hermes apps show under the bot and that you can continue from any device. Then the gateway resolves the session with the profile's `SessionStore`, runs the agent and calls the adapter's `send()` with the final answer (marked `notify`).
 3. The plugin completes the pending HTTP request with that text.
 
 ## Example
