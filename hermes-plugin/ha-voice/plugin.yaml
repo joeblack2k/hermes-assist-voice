@@ -1,0 +1,19 @@
+name: ha-voice
+label: Home Assistant Voice
+kind: platform
+version: 1.0.0
+description: >
+  Synchronous voice/text ingress for Home Assistant Assist. POST /voice with
+  {"text", "device"} returns the bot's final answer, and the turn runs through the
+  gateway session policy (idle/daily reset, /new) like any chat platform.
+author: homelab
+requires_env:
+  - name: HA_VOICE_KEY
+    description: "Bearer key Home Assistant uses to call the endpoint"
+    prompt: "HA voice bearer key"
+    password: true
+optional_env:
+  - name: HA_VOICE_PORT
+    description: "Listen port (default 8651; bind address via platforms.ha_voice.extra.host, default 127.0.0.1)"
+    prompt: "Port"
+    password: false

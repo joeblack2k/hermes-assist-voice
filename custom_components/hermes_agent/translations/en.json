@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Hermes Agent",
+        "description": "Base URL of the Hermes ha-voice endpoint (for example http://hermes-host:8651) and its HA_VOICE_KEY.",
+        "data": {
+          "url": "URL",
+          "api_key": "API key",
+          "timeout": "Timeout (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Hermes",
+      "invalid_auth": "Invalid API key"
+    },
+    "abort": {
+      "already_configured": "This Hermes endpoint is already configured"
+    }
+  }
+}
