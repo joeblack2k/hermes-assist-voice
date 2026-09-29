@@ -17,6 +17,12 @@
 | Conversations never start fresh | Check `session_reset` of the profile, or send `/new`. Sessions are keyed by `device`. |
 | Conversation entity missing after upgrade | Restart Home Assistant fully (custom component Python code is not hot-reloaded). |
 
+## Long tasks are silent
+
+* `display.platforms.ha_voice.interim_assistant_messages` must be `true`, otherwise Hermes never emits progress steps.
+* The persona (`SOUL.md`) must ask for a short spoken sentence before long tool calls, and must not forbid "one moment"-style phrases.
+* The first spoken step needs `ack_text` (see installation). Follow-up steps are announced with `assist_satellite.announce`; the satellite must support it and be idle again (the integration waits for that).
+
 ## Useful commands
 
 ```bash

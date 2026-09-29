@@ -38,7 +38,8 @@ Hermes' `api_server` platform is great for generic clients, but a voice assistan
 
 ## Features
 
-* Synchronous request/response: the final answer is returned as soon as the agent finishes.
+* Human-like progress: on long tasks the agent says short steps out loud ("I'm looking at it", "I'm logged in on the laptop") followed by the answer, instead of leaving a long silence. Fast questions are still answered in one go.
+* Full agent power: the voice bot can use every Hermes tool you enable for it, including a browser and a computer-control MCP server (see `docs/browser-and-computer.md`).
 * All voice devices (`device` field, for example the satellite entity name) share the bot's `Bot Chat` conversation; context is kept by Hermes compression rather than daily resets.
 * Optional per-request `context` (the integration sends the current local time) applied as an ephemeral system prompt that is never stored in the transcript.
 * Bearer-token authentication, bind address defaults to loopback.
@@ -63,6 +64,7 @@ Hermes' `api_server` platform is great for generic clients, but a voice assistan
 * [Using it with the Echo Muse / ESPHome voice satellites](docs/echo-muse.md)
 * [Making the bot sound right for voice (prompting, language, speed)](docs/voice-tuning.md)
 * [Endpoint reference](docs/api.md)
+* [Browser and computer access](docs/browser-and-computer.md)
 * [Troubleshooting](docs/troubleshooting.md)
 
 ## Security notes

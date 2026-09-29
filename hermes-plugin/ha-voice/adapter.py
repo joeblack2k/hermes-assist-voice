@@ -1,7 +1,12 @@
-"""Home Assistant Voice adapter: HTTP POST /voice -> gateway turn -> final answer in the response.
+"""Home Assistant Voice adapter: HTTP POST /voice -> gateway turn -> spoken replies.
 
-config.yaml platforms.ha_voice.extra keys: host (127.0.0.1), port (8651). Env: HA_VOICE_KEY (required),
-HA_VOICE_PORT, HA_VOICE_ALLOW_ALL_USERS.
+POST /voice returns the first reply: {"text", "final", "turn"}. If the turn is still running (final=false),
+the caller polls GET /voice/next?turn=<id> for further replies until one has final=true. Interim replies are
+Hermes' own mid-turn commentary (display.platforms.ha_voice.interim_assistant_messages) or the optional
+ack_text sent when nothing has been said after ack_after seconds.
+
+config.yaml platforms.ha_voice.extra keys: host (127.0.0.1), port (8651), ack_text (""), ack_after (6).
+Env: HA_VOICE_KEY (required), HA_VOICE_PORT, HA_VOICE_ALLOW_ALL_USERS.
 """
 
 import asyncio
@@ -47,7 +52,10 @@ class HAVoiceAdapter(BasePlatformAdapter):
         self._port: int = int(extra.get("port") or get_scoped_secret("HA_VOICE_PORT", "8651"))
         self._key: str = get_scoped_secret("HA_VOICE_KEY", "")
         self._runner = None
-        self._waiters: Dict[str, "asyncio.Future"] = {}
+        self._ack_text: str = str(extra.get("ack_text") or "").strip()
+        self._ack_after: float = float(extra.get("ack_after") or 6)
+        self._pending: Dict[str, list] = {}
+        self._queues: Dict[str, "asyncio.Queue"] = {}
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         if not self._key:
@@ -55,6 +63,7 @@ class HAVoiceAdapter(BasePlatformAdapter):
             return False
         app = web.Application()
         app.router.add_post("/voice", self._handle_voice)
+        app.router.add_get("/voice/next", self._handle_next)
         app.router.add_get("/health", self._handle_health)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
@@ -74,18 +83,39 @@ class HAVoiceAdapter(BasePlatformAdapter):
         if self._runner:
             await self._runner.cleanup()
             self._runner = None
-        for fut in self._waiters.values():
-            if not fut.done():
-                fut.cancel()
-        self._waiters.clear()
+        self._pending.clear()
+        self._queues.clear()
         self._mark_disconnected()
 
     async def _handle_health(self, request: "web.Request") -> "web.Response":
         return web.json_response({"status": "ok"})
 
+    def _authorized(self, request: "web.Request") -> bool:
+        return secrets.compare_digest(request.headers.get("Authorization", ""), f"Bearer {self._key}")
+
+    async def _next_reply(self, turn: str, wait: float, on_timeout=None) -> "web.Response":
+        queue = self._queues.get(turn)
+        if queue is None:
+            return web.json_response({"text": "", "final": True, "turn": turn})
+        try:
+            text, final = await asyncio.wait_for(queue.get(), wait)
+        except asyncio.TimeoutError:
+            return on_timeout() if on_timeout else web.json_response({"text": "", "final": False, "turn": turn})
+        if final:
+            self._queues.pop(turn, None)
+        return web.json_response({"text": text, "final": final, "turn": turn})
+
+    async def _handle_next(self, request: "web.Request") -> "web.Response":
+        if not self._authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            wait = min(float(request.query.get("wait", 20)), 30.0)
+        except ValueError:
+            wait = 20.0
+        return await self._next_reply(request.query.get("turn", ""), wait)
+
     async def _handle_voice(self, request: "web.Request") -> "web.Response":
-        auth = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {self._key}"):
+        if not self._authorized(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         try:
             body = await request.json()
@@ -95,10 +125,9 @@ class HAVoiceAdapter(BasePlatformAdapter):
         device = str(body.get("device") or "default").strip() or "default"
         if not text:
             return web.json_response({"error": "text required"}, status=400)
-        if device in self._waiters and not self._waiters[device].done():
-            self._waiters[device].cancel()
-        fut = asyncio.get_running_loop().create_future()
-        self._waiters[device] = fut
+        turn = uuid.uuid4().hex[:12]
+        self._queues[turn] = asyncio.Queue()
+        self._pending.setdefault(device, []).append(turn)
         source = self.build_source(
             chat_id=device, chat_name=f"Voice {device}", chat_type="dm",
             user_id="voice", user_name="Voice")
@@ -110,16 +139,12 @@ class HAVoiceAdapter(BasePlatformAdapter):
             text=text, message_type=MessageType.TEXT, source=source,
             message_id=uuid.uuid4().hex[:12], timestamp=datetime.now(),
             channel_prompt=str(body.get("context") or "").strip() or None))
-        try:
-            reply = await asyncio.wait_for(asyncio.shield(fut), REPLY_TIMEOUT)
-        except asyncio.TimeoutError:
-            return web.json_response({"error": "timeout"}, status=504)
-        except asyncio.CancelledError:
-            return web.json_response({"error": "superseded"}, status=409)
-        finally:
-            if self._waiters.get(device) is fut:
-                del self._waiters[device]
-        return web.json_response({"text": reply})
+        if self._ack_text:
+            return await self._next_reply(
+                turn, self._ack_after,
+                lambda: web.json_response({"text": self._ack_text, "final": False, "turn": turn}))
+        return await self._next_reply(
+            turn, REPLY_TIMEOUT, lambda: web.json_response({"error": "timeout"}, status=504))
 
     def _pin_bot_chat(self, source) -> None:
         """Route this voice chat into the profile's canonical hidden "Bot Chat" session, so the
@@ -146,9 +171,14 @@ class HAVoiceAdapter(BasePlatformAdapter):
         self, chat_id: str, content: str, reply_to: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
-        fut = self._waiters.get(chat_id)
-        if fut is not None and not fut.done() and (metadata or {}).get("notify"):
-            fut.set_result(content)
+        pending = self._pending.get(chat_id)
+        if pending and content.strip():
+            final = bool((metadata or {}).get("notify"))
+            queue = self._queues.get(pending[0])
+            if queue is not None:
+                queue.put_nowait((content, final))
+            if final:
+                pending.pop(0)
         return SendResult(success=True, message_id=uuid.uuid4().hex[:12])
 
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:

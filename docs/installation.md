@@ -41,9 +41,11 @@ plugins:
 platforms:
   ha_voice:
     enabled: true
-    # extra:
-    #   host: 127.0.0.1   # default. Use 0.0.0.0 (or a LAN address) if Home Assistant is on another machine
-    #   port: 8651
+    extra:
+      # host: 127.0.0.1   # default. Use 0.0.0.0 (or a LAN address) if Home Assistant is on another machine
+      # port: 8651
+      ack_text: "One moment, I'll take a look."   # spoken if the agent is silent for ack_after seconds; "" disables
+      ack_after: 6
 
 # Tools the voice bot may use. Keep this list short: every tool adds latency and risk.
 platform_toolsets:
@@ -58,7 +60,7 @@ display:
   platforms:
     ha_voice:
       tool_progress: 'off'
-      interim_assistant_messages: false
+      interim_assistant_messages: true   # spoken progress steps during long tasks
       streaming: false
       busy_ack_detail: false
       long_running_notifications: false
