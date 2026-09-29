@@ -126,6 +126,8 @@ Copy `custom_components/hermes_agent` into your Home Assistant `config/custom_co
 | API key | The value of `HA_VOICE_KEY` |
 | Timeout | Seconds Home Assistant waits for an answer (default 90) |
 
+Optional: *Configure* lets you choose a speaker media player so answers play there instead of on the satellite, see [echo-muse.md](echo-muse.md).
+
 The setup checks `GET <url>/health`. This creates a conversation entity called `conversation.hermes_agent`.
 
 ## 3. Assist pipeline

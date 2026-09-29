@@ -18,5 +18,16 @@
     "abort": {
       "already_configured": "This Hermes endpoint is already configured"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hermes Agent",
+        "description": "Optional: speak all replies on this speaker instead of the voice satellite (the satellite then only listens).",
+        "data": {
+          "speaker": "Speaker"
+        }
+      }
+    }
   }
 }

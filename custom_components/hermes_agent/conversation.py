@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import aiohttp
 
 from homeassistant.components import conversation
+from homeassistant.components.assist_pipeline import async_get_pipelines
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
@@ -18,11 +19,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_API_KEY, CONF_TIMEOUT, CONF_URL, DEFAULT_TIMEOUT
+from .const import CONF_API_KEY, CONF_SPEAKER, CONF_TIMEOUT, CONF_URL, DEFAULT_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
 FOLLOW_UP_TIMEOUT = 600
+Say = Callable[[str], Any]
 POLL_WAIT = 20
 
 
@@ -74,8 +76,42 @@ class HermesConversationEntity(conversation.ConversationEntity):
         except HomeAssistantError as err:
             _LOGGER.warning("Hermes announcement on %s failed: %s", satellite, err)
 
-    async def _follow_up(self, turn: str, satellite: str | None) -> str:
-        """Speak later replies on the satellite; without one, return the final reply."""
+    async def _speak(self, speaker: str, message: str) -> None:
+        pipeline = next(
+            (p for p in async_get_pipelines(self.hass) if p.conversation_engine == self.entity_id and p.tts_engine),
+            None,
+        )
+        if pipeline is None:
+            _LOGGER.warning("No pipeline with a TTS engine uses this agent; cannot speak on %s", speaker)
+            return
+        data: dict[str, Any] = {
+            "entity_id": pipeline.tts_engine,
+            "media_player_entity_id": speaker,
+            "message": message,
+            "language": pipeline.tts_language,
+        }
+        if pipeline.tts_voice:
+            data["options"] = {"voice": pipeline.tts_voice}
+        try:
+            await self.hass.services.async_call("tts", "speak", data, blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Hermes speech on %s failed: %s", speaker, err)
+
+    def _say_for(self, satellite: str | None) -> Say | None:
+        if speaker := self._entry.options.get(CONF_SPEAKER):
+            return lambda message: self._speak(speaker, message)
+        if satellite:
+            return lambda message: self._announce(satellite, message)
+        return None
+
+    async def _speak_reply(self, reply: dict[str, Any], say: Say) -> None:
+        if text := (reply.get("text") or "").strip():
+            await say(text)
+        if not reply.get("final", True):
+            await self._follow_up(reply["turn"], say)
+
+    async def _follow_up(self, turn: str, say: Say | None) -> str:
+        """Speak later replies with `say`; without one, return the final reply."""
         deadline = time.monotonic() + FOLLOW_UP_TIMEOUT
         while time.monotonic() < deadline:
             try:
@@ -85,11 +121,11 @@ class HermesConversationEntity(conversation.ConversationEntity):
                 break
             text = (reply.get("text") or "").strip()
             if reply.get("final"):
-                if satellite and text:
-                    await self._announce(satellite, text)
+                if say and text:
+                    await say(text)
                 return text
-            if satellite and text:
-                await self._announce(satellite, text)
+            if say and text:
+                await say(text)
         return ""
 
     async def _async_handle_message(
@@ -114,10 +150,16 @@ class HermesConversationEntity(conversation.ConversationEntity):
                 resp.raise_for_status()
                 reply = await resp.json()
             text = reply["text"].strip()
-            if not reply.get("final", True):
-                if satellite:
+            say = self._say_for(satellite)
+            if self._entry.options.get(CONF_SPEAKER):
+                self.hass.async_create_background_task(
+                    self._speak_reply(reply, say), "hermes_agent_speaker"
+                )
+                text = ""
+            elif not reply.get("final", True):
+                if say:
                     self.hass.async_create_background_task(
-                        self._follow_up(reply["turn"], satellite), "hermes_agent_follow_up"
+                        self._follow_up(reply["turn"], say), "hermes_agent_follow_up"
                     )
                 else:
                     text = await self._follow_up(reply["turn"], None) or text

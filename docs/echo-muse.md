@@ -41,3 +41,13 @@ Two speakers in the same room can share a conversation by sending the same `devi
 * If the speaker should ask a follow-up question, enable *continued conversation* on the satellite where your Home Assistant version supports it; the bot then keeps listening after a question.
 * Use *Prefer handling commands locally* in the pipeline so simple commands ("turn on the light") never wait on an LLM.
 * Latency budget: wake word + STT (1-2 s) + LLM (2-6 s, model dependent) + TTS (1-2 s). A fast, small model with few tools is the biggest lever.
+
+## Microphone here, speaker somewhere else
+
+The satellite can be used as a microphone only, while a better speaker (for example a Sonos) plays the answers. Open *Settings -> Devices & services -> Hermes Agent -> Configure* and pick a *Speaker* (any media player). Then:
+
+* Every reply, including the early acknowledgement and the spoken progress steps of long tasks, is played on that media player with the pipeline's own TTS engine, language and voice.
+* The conversation returns no text to the pipeline, so the satellite itself stays silent. The pipeline therefore skips its TTS step.
+* Clear the field to go back to speaking on the satellite.
+
+The media player must accept announcements (`tts.speak`). Some players (Sonos) do not show a state change while they announce, so check by listening rather than by looking at the entity.
